@@ -1,0 +1,18 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.openOcdConfigs": [
+    "board/esp32s3-builtin.cfg"
+],
+  "idf.port": "/dev/ttyACM0",
+  "idf.currentSetup": "/home/lqdung/.espressif/v5.5.3/esp-idf",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32s3"
+},
+  "clangd.path": "/home/lqdung/.espressif/tools/esp-clang/esp-20.1.1_20250829/esp-clang/bin/clangd",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=/home/lqdung/Code/esp32/blink/build"
+],
+"idf.flashType": "UART"
+}

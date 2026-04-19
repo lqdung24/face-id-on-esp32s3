@@ -1,0 +1,15 @@
+dependencies:
+  # Ép hai model AI về cùng một hệ sinh thái 0.3.x
+  espressif/human_face_detect: "~0.3.0"
+  espressif/human_face_recognition: "~0.3.0"
+
+  # Driver phần cứng
+  espressif/esp32-camera: "^2.0.0"
+  espressif/led_strip: "^3.0.0"
+
+  # Các thư viện bổ trợ xử lý ảnh
+  espressif/esp-dsp: "^1.7.0"
+  espressif/esp_jpeg: "^1.0.0"
+  espressif/esp_websocket_client: "*"
+
+  idf: ">=5.3"
