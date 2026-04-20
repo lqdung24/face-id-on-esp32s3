@@ -4,7 +4,10 @@
 #include "esp_log.h"
 #include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
+#include "cJSON.h"
 #include <cstring>
+#include <vector>
+
 
 static const char *TAG = "ws_handler";
 
@@ -108,6 +111,7 @@ int websocket_send_bin(const uint8_t *data, size_t len) {
       s_ws_client, reinterpret_cast<const char *>(data), static_cast<int>(len),
       pdMS_TO_TICKS(1000));
 }
+
 
 int websocket_send_text(const char *json_str) {
   if (!s_ws_client || !esp_websocket_client_is_connected(s_ws_client)) {

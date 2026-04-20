@@ -4,16 +4,51 @@ ESP32 Face-ID Receiver Server (Raw WebSocket Version)
 """
 
 import os
+import io
 import json
 import base64
+import threading
 from datetime import datetime
 from flask import Flask, render_template_string
 from flask_sock import Sock
+from PIL import Image, ImageDraw, ImageFont
 
 app = Flask(__name__)
 sock = Sock(app)
 
 clients = set()
+
+# ---- Latest frame storage ----
+latest_frame_lock = threading.Lock()
+latest_frame: bytes | None = None          # raw JPEG bytes from ESP32
+
+
+def draw_faces_on_frame(jpeg_bytes: bytes, faces: list) -> bytes:
+    """Draw bounding boxes and keypoints on a JPEG frame. Returns annotated JPEG bytes."""
+    img = Image.open(io.BytesIO(jpeg_bytes))
+    draw = ImageDraw.Draw(img)
+
+    for face in faces:
+        # --- Bounding box: [x1, y1, x2, y2] ---
+        box = face.get("box", [])
+        if len(box) == 4:
+            x1, y1, x2, y2 = box
+            draw.rectangle([x1, y1, x2, y2], outline="#22c55e", width=2)
+            # score label
+            score = face.get("score", 0)
+            label = f"{score:.0f}%" if score > 1 else f"{score:.2f}"
+            draw.text((x1, max(y1 - 14, 0)), label, fill="#22c55e")
+
+        # --- Keypoints: [x1,y1, x2,y2, ...] ---
+        kps = face.get("keypoint", [])
+        for i in range(0, len(kps) - 1, 2):
+            kx, ky = kps[i], kps[i + 1]
+            r = 3
+            draw.ellipse([kx - r, ky - r, kx + r, ky + r], fill="#ef4444")
+
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
 
 DASHBOARD_HTML = """
 <!DOCTYPE html>
@@ -117,9 +152,12 @@ DASHBOARD_HTML = """
           document.getElementById('val-faces').textContent = d.faces_enrolled ?? '–';
           document.getElementById('val-seen').textContent = new Date().toLocaleTimeString();
           addEvent('status', '💚 Heartbeat', 'Faces: ' + d.faces_enrolled);
+        } else if (d.type === 'esp_event' && d.name === 'face_detected') {
+          document.getElementById('val-recog').textContent = 'Faces: ' + d.count;
+          addEvent('face', '🧑 Detected ' + d.count + ' face(s)', 'score: ' + (d.faces && d.faces[0] ? d.faces[0].score : '–'));
         } else if (d.type === 'esp_event') {
           document.getElementById('val-recog').textContent = d.name;
-          addEvent('face', '✅ Recognised: ' + d.name, 'Name Matched');
+          addEvent('face', '✅ ' + d.name, 'Event');
         } else if (d.type === 'esp_frame') {
           const img = document.getElementById('live-img');
           img.src = 'data:image/jpeg;base64,' + d.frame_b64;
@@ -186,6 +224,11 @@ def handle_ws(ws):
 
             # --- Binary frame: ESP32 gửi raw JPEG bytes ---
             if isinstance(msg, bytes):
+                # Lưu frame mới nhất để vẽ face overlay
+                global latest_frame
+                with latest_frame_lock:
+                    latest_frame = msg
+
                 # Convert sang base64 JSON để browser hiển thị
                 b64 = base64.b64encode(msg).decode('ascii')
                 payload = json.dumps({"type": "esp_frame", "frame_b64": b64})
@@ -199,6 +242,27 @@ def handle_ws(ws):
 
             # --- Text frame: JSON từ browser hoặc ESP32 ---
             try:
+                data = json.loads(msg)
+
+                # ── face_detected: vẽ bbox + keypoint lên frame ──
+                if (data.get('type') == 'esp_event'
+                        and data.get('name') == 'face_detected'):
+                    faces = data.get('faces', [])
+                    with latest_frame_lock:
+                        frame = latest_frame
+
+                    if frame and faces:
+                        annotated = draw_faces_on_frame(frame, faces)
+                        b64 = base64.b64encode(annotated).decode('ascii')
+                        frame_payload = json.dumps(
+                            {"type": "esp_frame", "frame_b64": b64})
+                        for client in list(clients):
+                            if client != ws:
+                                try:
+                                    client.send(frame_payload)
+                                except Exception:
+                                    clients.discard(client)
+
                 # Forward nguyên vẹn cho các client khác
                 for client in list(clients):
                     if client != ws:
@@ -207,9 +271,9 @@ def handle_ws(ws):
                         except Exception:
                             clients.discard(client)
 
-                data = json.loads(msg)
                 if data.get('type') != 'esp_frame':
-                    print(f"[WS] {data.get('type')} -> {len(clients)-1} clients")
+                    print(f"[WS] {data.get('type')}/{data.get('name','')} "
+                          f"-> {len(clients)-1} clients")
             except Exception as e:
                 print(f"[WS] Error: {e}")
     finally:

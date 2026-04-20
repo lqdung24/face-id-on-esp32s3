@@ -3,6 +3,7 @@
 #include "esp_err.h"
 #include "esp_camera.h"
 #include "dl_detect_define.hpp"
+#include "event.hpp"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,7 +30,7 @@ esp_err_t ai_init(void);
  * @param fb Frame buffer JPEG nhận từ camera_capture()
  * @return Số lượng face detected (0 nếu không có hoặc lỗi)
  */
-int ai_detect_faces(camera_fb_t *fb, std::vector<dl::detect::result_t> &out);
+int ai_detect_faces(camera_fb_t *fb, std::vector<face_event_t> &out);
 
 /**
  * @brief Bật/tắt AI processing.

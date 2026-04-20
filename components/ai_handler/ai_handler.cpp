@@ -10,8 +10,6 @@
 #include "dl_image_define.hpp"
 #include "img_converters.h"
 #include "esp_timer.h"
-#include "dl_detect_define.hpp"
-
 
 static const char *TAG = "ai_handler";
 
@@ -33,7 +31,7 @@ esp_err_t ai_init(void)
     return ESP_OK;
 }
 
-int ai_detect_faces(camera_fb_t *fb, std::vector<dl::detect::result_t> &out)
+int ai_detect_faces(camera_fb_t *fb, std::vector<face_event_t> &out)
 {
     out.clear();
 
@@ -77,12 +75,11 @@ int ai_detect_faces(camera_fb_t *fb, std::vector<dl::detect::result_t> &out)
     int face_count = results.size();
 
     ESP_LOGI(TAG, "Detected %d face(s)", face_count);
+    
+    out.reserve(results.size());
 
     for (auto &r : results) {
-        // copy ra ngoài
-        out.push_back(r);
-
-        // 🔹 log bbox
+                // 🔹 log bbox
         ESP_LOGI(TAG, "box=[%d,%d,%d,%d] score=%.2f",
                  r.box[0], r.box[1], r.box[2], r.box[3], r.score);
 
@@ -101,6 +98,12 @@ int ai_detect_faces(camera_fb_t *fb, std::vector<dl::detect::result_t> &out)
         }
 
         printf("\n");
+        out.push_back({
+            .category = r.category,
+            .score = r.score,
+            .box = std::move(r.box),
+            .keypoint = std::move(r.keypoint)
+        });
     }
 
     free(rgb_buf);

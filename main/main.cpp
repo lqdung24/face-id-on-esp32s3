@@ -25,6 +25,8 @@
 #include "websocket_handler.h"
 #include "ai_handler.h"
 #include "dl_detect_define.hpp"
+#include "event.hpp"
+#include "json_builder.hpp"
 
 static const char *TAG = "main";
 
@@ -104,17 +106,19 @@ static void ai_task(void *arg)
         }
 
         camera_fb_t *fb = camera_capture();
+
         if (fb) {
-            std::vector<dl::detect::result_t> result;
+            std::vector<face_event_t> result;
             int faces = ai_detect_faces(fb, result);
 
             /* Gửi kết quả detect về server */
             if (faces > 0 && websocket_is_connected()) {
-                char json[128];
-                snprintf(json, sizeof(json),
-                         "{\"type\":\"esp_event\",\"name\":\"face_detected\",\"count\":%d}",
-                         faces);
+                char *json;
+                json_build_faces_event(result, &json);
+
                 websocket_send_text(json);
+
+                free(json);
             }
 
             camera_release(fb);
