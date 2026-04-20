@@ -1,11 +1,13 @@
 #pragma once
-
+#include <vector>
 #include "esp_err.h"
 #include "esp_camera.h"
+#include "dl_detect_define.hpp"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 
 /**
  * @brief Khởi tạo AI face detection model.
@@ -27,7 +29,7 @@ esp_err_t ai_init(void);
  * @param fb Frame buffer JPEG nhận từ camera_capture()
  * @return Số lượng face detected (0 nếu không có hoặc lỗi)
  */
-int ai_detect_faces(camera_fb_t *fb);
+int ai_detect_faces(camera_fb_t *fb, std::vector<dl::detect::result_t> &out);
 
 /**
  * @brief Bật/tắt AI processing.

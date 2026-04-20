@@ -1,4 +1,5 @@
 #include "camera_handler.h"
+#include "img_converters.h"
 
 #include "esp_log.h"
 
@@ -85,6 +86,25 @@ camera_fb_t *camera_capture(void) {
     return nullptr;
   }
   return fb;
+}
+
+uint8_t *capture_jpeg(size_t *out_len) {
+    camera_fb_t *fb = camera_capture();
+    if (!fb) return NULL;
+
+    uint8_t *jpg_buf = NULL;
+    size_t jpg_len = 0;
+
+    bool ok = frame2jpg(fb, 20, &jpg_buf, &jpg_len);
+    camera_release(fb);
+
+    if (!ok) {
+        printf("JPEG compression failed\n");
+        return NULL;
+    }
+
+    *out_len = jpg_len;
+    return jpg_buf;
 }
 
 void camera_release(camera_fb_t *fb) {

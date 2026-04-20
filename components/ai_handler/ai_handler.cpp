@@ -2,11 +2,16 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <new>
+#include <vector>
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "human_face_detect.hpp"
 #include "dl_image_define.hpp"
 #include "img_converters.h"
+#include "esp_timer.h"
+#include "dl_detect_define.hpp"
+
 
 static const char *TAG = "ai_handler";
 
@@ -28,54 +33,74 @@ esp_err_t ai_init(void)
     return ESP_OK;
 }
 
-int ai_detect_faces(camera_fb_t *fb)
+int ai_detect_faces(camera_fb_t *fb, std::vector<dl::detect::result_t> &out)
 {
-    if (!s_ai_running.load() || !s_detector || !fb) {
+    out.clear();
+
+    if (!s_ai_running.load() || !s_detector || !fb || !fb->buf) {
         return 0;
     }
 
-    /* ── Decode JPEG → RGB888 ──────────────────────────── */
-    uint8_t *rgb_buf = nullptr;
-    size_t rgb_len = 0;
-
-    /* fmt2rgb888 allocates into rgb_buf on PSRAM */
-    bool ok = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, nullptr);
-
-    /* Dùng cách allocate thủ công + decode */
     int w = fb->width;
     int h = fb->height;
-    rgb_len = w * h * 3;  // RGB888
+    if (w <= 0 || h <= 0) return 0;
 
-    rgb_buf = static_cast<uint8_t *>(
-        heap_caps_malloc(rgb_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    size_t rgb_len = w * h * 3;
+
+    uint8_t *rgb_buf = (uint8_t *)heap_caps_malloc(
+        rgb_len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+
     if (!rgb_buf) {
-        ESP_LOGE(TAG, "Failed to allocate RGB buffer (%zu bytes)", rgb_len);
+        ESP_LOGE(TAG, "Failed to allocate RGB buffer");
         return 0;
     }
 
-    ok = fmt2rgb888(fb->buf, fb->len, PIXFORMAT_JPEG, rgb_buf);
+    bool ok = fmt2rgb888(fb->buf, fb->len, fb->format, rgb_buf);
     if (!ok) {
-        ESP_LOGE(TAG, "JPEG → RGB888 decode failed");
+        ESP_LOGE(TAG, "RGB → RGB888 convert failed (format=%d)", fb->format);
         free(rgb_buf);
         return 0;
     }
 
-    /* ── Chạy face detection ───────────────────────────── */
     dl::image::img_t img = {};
     img.data     = rgb_buf;
-    img.width    = static_cast<uint16_t>(w);
-    img.height   = static_cast<uint16_t>(h);
+    img.width    = w;
+    img.height   = h;
     img.pix_type = dl::image::DL_IMAGE_PIX_TYPE_RGB888;
 
+    int64_t t0 = esp_timer_get_time();
     auto &results = s_detector->run(img);
-    int face_count = static_cast<int>(results.size());
+    int64_t t1 = esp_timer_get_time();
 
-    if (face_count > 0) {
-        ESP_LOGI(TAG, "Detected %d face(s)", face_count);
-        for (auto &r : results) {
-            ESP_LOGI(TAG, "  → box=[%d,%d,%d,%d] score=%.2f",
-                     r.box[0], r.box[1], r.box[2], r.box[3], r.score);
+    ESP_LOGI(TAG, "AI inference: %.2f ms", (t1 - t0) / 1000.0);
+
+    int face_count = results.size();
+
+    ESP_LOGI(TAG, "Detected %d face(s)", face_count);
+
+    for (auto &r : results) {
+        // copy ra ngoài
+        out.push_back(r);
+
+        // 🔹 log bbox
+        ESP_LOGI(TAG, "box=[%d,%d,%d,%d] score=%.2f",
+                 r.box[0], r.box[1], r.box[2], r.box[3], r.score);
+
+        // 🔹 log keypoints
+        int kp_size = r.keypoint.size();
+
+        if (kp_size % 2 != 0) {
+            ESP_LOGW(TAG, "Invalid keypoint size: %d", kp_size);
+            continue;
         }
+
+        printf("  keypoints (%d): ", kp_size / 2);
+
+        for (int i = 0; i < kp_size; i += 2) {
+            printf("(%d,%d) ", r.keypoint[i], r.keypoint[i + 1]);
+        }
+
+        printf("\n");
     }
 
     free(rgb_buf);

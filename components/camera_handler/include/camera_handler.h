@@ -32,6 +32,8 @@ camera_fb_t *camera_capture(void);
  */
 void camera_release(camera_fb_t *fb);
 
+uint8_t *capture_jpeg(size_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif

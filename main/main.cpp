@@ -13,6 +13,7 @@
 
 #include <cstring>
 #include <atomic>
+#include <vector>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -23,6 +24,7 @@
 #include "camera_handler.h"
 #include "websocket_handler.h"
 #include "ai_handler.h"
+#include "dl_detect_define.hpp"
 
 static const char *TAG = "main";
 
@@ -69,16 +71,23 @@ static void stream_task(void *arg)
             continue;
         }
 
-        camera_fb_t *fb = camera_capture();
-        if (fb) {
-            int sent = websocket_send_bin(fb->buf, fb->len);
-            if (sent < 0) {
-                ESP_LOGW(TAG, "Failed to send frame (%zu bytes)", fb->len);
-            }
-            camera_release(fb);
+        size_t jpg_len = 0;
+        uint8_t *buf = capture_jpeg(&jpg_len);
+
+        if (!buf) {
+            ESP_LOGW(TAG, "capture_jpeg failed");
+            continue;
         }
 
-        /* ~15 FPS target */
+        int sent = websocket_send_bin(buf, jpg_len);
+
+        if (sent < 0) {
+            ESP_LOGW(TAG, "Failed to send frame (%zu bytes)", jpg_len);
+        }
+
+        free(buf);  // 🔥 luôn free (success hay fail)
+
+        /* ~15 FPS */
         vTaskDelay(pdMS_TO_TICKS(66));
     }
 }
@@ -96,7 +105,8 @@ static void ai_task(void *arg)
 
         camera_fb_t *fb = camera_capture();
         if (fb) {
-            int faces = ai_detect_faces(fb);
+            std::vector<dl::detect::result_t> result;
+            int faces = ai_detect_faces(fb, result);
 
             /* Gửi kết quả detect về server */
             if (faces > 0 && websocket_is_connected()) {
