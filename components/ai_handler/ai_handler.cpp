@@ -16,6 +16,7 @@ static const char *TAG = "ai_handler";
 /* ── State ───────────────────────────────────────────────── */
 static std::atomic<bool> s_ai_running{false};
 static HumanFaceDetect  *s_detector = nullptr;
+static HumanFaceRecognizer *s_embedding = nullptr;
 
 /* ── Public API ──────────────────────────────────────────── */
 esp_err_t ai_init(void)
@@ -26,15 +27,37 @@ esp_err_t ai_init(void)
         ESP_LOGE(TAG, "Failed to create HumanFaceDetect");
         return ESP_ERR_NO_MEM;
     }
-
+    s_embedding = new (std::nothrow) HumanFaceRecognizer(
+        "/spiffs/face_id.bin",
+        HumanFaceFeat::MFN_S8_V1, 
+        true
+    );
+    if(!s_embedding){
+        ESP_LOGE(TAG, "Failed to create HumanFaceEmbedding");
+        return ESP_ERR_NO_MEM;
+    }
     ESP_LOGI(TAG, "AI face detection model initialized (lazy load)");
     return ESP_OK;
 }
 
-int ai_detect_faces(camera_fb_t *fb, std::vector<face_event_t> &out)
-{
-    out.clear();
+int convert_2_rgb888(camera_fb_t *fb, uint8_t *rgb_buf){
+    if (!rgb_buf) {
+        ESP_LOGE(TAG, "RGB buffer is not allocated");
+        return 0;
+    }
 
+    bool ok = fmt2rgb888(fb->buf, fb->len, fb->format, rgb_buf);
+
+    if (!ok) {
+        ESP_LOGE(TAG, "RGB → RGB888 convert failed (format=%d)", fb->format);
+        free(rgb_buf);
+        return 0;
+    }
+    return 1;
+}
+
+int ai_detect_faces(camera_fb_t *fb, std::__cxx11::list<dl::detect::result_t> &results)
+{
     if (!s_ai_running.load() || !s_detector || !fb || !fb->buf) {
         return 0;
     }
@@ -54,6 +77,7 @@ int ai_detect_faces(camera_fb_t *fb, std::vector<face_event_t> &out)
     }
 
     bool ok = fmt2rgb888(fb->buf, fb->len, fb->format, rgb_buf);
+
     if (!ok) {
         ESP_LOGE(TAG, "RGB → RGB888 convert failed (format=%d)", fb->format);
         free(rgb_buf);
@@ -67,16 +91,16 @@ int ai_detect_faces(camera_fb_t *fb, std::vector<face_event_t> &out)
     img.pix_type = dl::image::DL_IMAGE_PIX_TYPE_RGB888;
 
     int64_t t0 = esp_timer_get_time();
-    auto &results = s_detector->run(img);
+    results = s_detector->run(img);
     int64_t t1 = esp_timer_get_time();
 
-    ESP_LOGI(TAG, "AI inference: %.2f ms", (t1 - t0) / 1000.0);
+    ESP_LOGI(TAG, "AI detect time: %.2f ms, Detected %d face(s)", (t1 - t0) / 1000.0, results.size());
 
-    int face_count = results.size();
+    t0 = esp_timer_get_time();
+    auto reco_results = s_embedding->recognize(img, results);
+    t1 = esp_timer_get_time();
 
-    ESP_LOGI(TAG, "Detected %d face(s)", face_count);
-    
-    out.reserve(results.size());
+    ESP_LOGI(TAG, "AI recognize time: %.2f ms, similarity", (t1 - t0) / 1000.0, reco_results);
 
     for (auto &r : results) {
                 // 🔹 log bbox
@@ -96,18 +120,11 @@ int ai_detect_faces(camera_fb_t *fb, std::vector<face_event_t> &out)
         for (int i = 0; i < kp_size; i += 2) {
             printf("(%d,%d) ", r.keypoint[i], r.keypoint[i + 1]);
         }
-
         printf("\n");
-        out.push_back({
-            .category = r.category,
-            .score = r.score,
-            .box = std::move(r.box),
-            .keypoint = std::move(r.keypoint)
-        });
     }
 
     free(rgb_buf);
-    return face_count;
+    return results.size();
 }
 
 void ai_set_running(bool running)

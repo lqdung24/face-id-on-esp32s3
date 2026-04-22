@@ -31,10 +31,15 @@
 static const char *TAG = "main";
 
 /* ── Cấu hình ───────────────────────────────────────────── */
-#define WIFI_SSID       "B13-405"
-#define WIFI_PASS       "12346789"
-#define WS_SERVER_URI   "ws://192.168.1.15:5000/ws"
+#define WIFI_SSID       "panda"
+#define WIFI_PASS       "mybirthday"
+#define WS_SERVER_URI   "ws://172.20.10.4:5000/ws"
 
+
+// home config
+// #define WIFI_SSID       "B13-405"
+// #define WIFI_PASS       "12346789"
+// #define WS_SERVER_URI   "ws://192.168.1.15:5000/ws"
 /* ── Shared state ────────────────────────────────────────── */
 static std::atomic<bool> s_streaming{false};
 
@@ -109,10 +114,10 @@ static void ai_task(void *arg)
 
         if (fb) {
             std::vector<face_event_t> result;
-            int faces = ai_detect_faces(fb, result);
+            int face = ai_detect_faces(fb, result);
 
             /* Gửi kết quả detect về server */
-            if (faces > 0 && websocket_is_connected()) {
+            if (face > 0 && websocket_is_connected()) {
                 char *json;
                 json_build_faces_event(result, &json);
 

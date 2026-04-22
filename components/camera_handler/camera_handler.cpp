@@ -51,10 +51,10 @@ esp_err_t camera_init(void) {
   config.ledc_timer = LEDC_TIMER_0;
   config.ledc_channel = LEDC_CHANNEL_0;
 
-  config.pixel_format = PIXFORMAT_RGB565;
-  config.frame_size = FRAMESIZE_QVGA; // 320×240
-//   config.jpeg_quality = 12;           // 0-63, thấp = chất lượng cao
-  config.fb_count = 2;                // Double-buffer
+  config.pixel_format = PIXFORMAT_RGB565; // jpeg
+  config.frame_size = FRAMESIZE_QVGA;     // 320×240
+  //   config.jpeg_quality = 12;           // 0-63, thấp = chất lượng cao
+  config.fb_count = 2; // Double-buffer
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 
@@ -89,22 +89,23 @@ camera_fb_t *camera_capture(void) {
 }
 
 uint8_t *capture_jpeg(size_t *out_len) {
-    camera_fb_t *fb = camera_capture();
-    if (!fb) return NULL;
+  camera_fb_t *fb = camera_capture();
+  if (!fb)
+    return NULL;
 
-    uint8_t *jpg_buf = NULL;
-    size_t jpg_len = 0;
+  uint8_t *jpg_buf = NULL;
+  size_t jpg_len = 0;
 
-    bool ok = frame2jpg(fb, 20, &jpg_buf, &jpg_len);
-    camera_release(fb);
+  bool ok = frame2jpg(fb, 20, &jpg_buf, &jpg_len);
+  camera_release(fb);
 
-    if (!ok) {
-        printf("JPEG compression failed\n");
-        return NULL;
-    }
+  if (!ok) {
+    printf("JPEG compression failed\n");
+    return NULL;
+  }
 
-    *out_len = jpg_len;
-    return jpg_buf;
+  *out_len = jpg_len;
+  return jpg_buf;
 }
 
 void camera_release(camera_fb_t *fb) {

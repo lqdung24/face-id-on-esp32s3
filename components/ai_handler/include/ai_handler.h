@@ -4,6 +4,7 @@
 #include "esp_camera.h"
 #include "dl_detect_define.hpp"
 #include "event.hpp"
+#include "human_face_recognition.hpp"
 
 #ifdef __cplusplus
 extern "C" {
