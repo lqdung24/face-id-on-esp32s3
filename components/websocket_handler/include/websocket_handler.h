@@ -13,7 +13,7 @@ extern "C" {
  * @param action Chuỗi action nhận được, vd: "start_stream", "stop_stream",
  *               "start_ai", "stop_ai"
  */
-typedef void (*ws_command_cb_t)(const char *action);
+typedef void (*ws_command_cb_t)(const char *action, const char *name, int count);
 
 /**
  * @brief Khởi tạo WebSocket client (chưa kết nối).

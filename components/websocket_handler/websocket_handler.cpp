@@ -13,6 +13,10 @@ static const char *TAG = "ws_handler";
 
 static esp_websocket_client_handle_t s_ws_client = nullptr;
 static ws_command_cb_t s_cmd_callback = nullptr;
+static bool s_registering = false;
+static char s_reg_name[32] = {0};
+static int s_reg_expected = 0;
+static int s_reg_received = 0;
 
 /* ── WebSocket Event Handler ─────────────────────────────── */
 static void websocket_event_handler(void *arg, esp_event_base_t event_base,
@@ -22,6 +26,13 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base,
   switch (event_id) {
   case WEBSOCKET_EVENT_CONNECTED:
     ESP_LOGI(TAG, "WebSocket connected to server");
+    // Gửi hello message để server nhận diện đây là ESP32
+    {
+      const char *hello = "{\"type\":\"esp_status\",\"name\":\"hello\",\"faces_enrolled\":0}";
+      esp_websocket_client_send_text(s_ws_client, hello,
+                                     strlen(hello), pdMS_TO_TICKS(1000));
+      ESP_LOGI(TAG, "Sent esp_status hello to server");
+    }
     break;
 
   case WEBSOCKET_EVENT_DISCONNECTED:
@@ -31,22 +42,67 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base,
   case WEBSOCKET_EVENT_DATA:
     /* Chỉ xử lý text frame (opcode 0x01) hoặc final fragment */
     if (data->op_code == 0x01 && data->data_len > 0) {
-      /* Parse JSON command từ server */
-      cJSON *root = cJSON_ParseWithLength(data->data_ptr, data->data_len);
-      if (root) {
-        cJSON *type = cJSON_GetObjectItem(root, "type");
-        cJSON *action = cJSON_GetObjectItem(root, "action");
+        /* Parse JSON command từ server */
+        cJSON *root = cJSON_ParseWithLength(data->data_ptr, data->data_len);
+        if (root) {
+            cJSON *type = cJSON_GetObjectItem(root, "type");
+            cJSON *action = cJSON_GetObjectItem(root, "action");
 
-        if (type && cJSON_IsString(type) &&
-            strcmp(type->valuestring, "cmd_to_esp") == 0 && action &&
-            cJSON_IsString(action)) {
-          ESP_LOGI(TAG, "Command received: %s", action->valuestring);
-          if (s_cmd_callback) {
-            s_cmd_callback(action->valuestring);
-          }
+            if (type && cJSON_IsString(type) &&
+                strcmp(type->valuestring, "cmd_to_esp") == 0 && action &&
+                cJSON_IsString(action)) {
+                
+                // Đọc thêm name và count
+                cJSON *name_item = cJSON_GetObjectItem(root, "name");
+                cJSON *count_item = cJSON_GetObjectItem(root, "count");
+
+                const char* name_str = nullptr;
+                int count_val = 0;
+
+                if (name_item && cJSON_IsString(name_item)) {
+                    name_str = name_item->valuestring;
+                }
+                if (count_item && cJSON_IsNumber(count_item)) {
+                    count_val = count_item->valueint;
+                }
+
+                ESP_LOGI(TAG, "Command received: %s, name: %s, count: %d", 
+                        action->valuestring, name_str ? name_str : "N/A", count_val);
+                
+                if (s_cmd_callback) {
+                    // Truyền tất cả vào callback
+                    s_cmd_callback(action->valuestring, name_str, count_val);
+                    if(strcmp(action->valuestring, "register") ==0){
+                        s_registering = true;
+
+                        strncpy(s_reg_name, name_str, sizeof(s_reg_name) - 1);
+
+                        s_reg_expected = count_val;
+                        s_reg_received = 0;
+                    }
+                }
+            }
+
+            cJSON_Delete(root);
         }
-        cJSON_Delete(root);
-      }
+    }
+    else if (data->op_code == 0x02 && s_registering) {
+
+        char path[128];
+        sprintf(path, "/spiffs/%s_%d.jpg", s_reg_name, s_reg_received);
+
+        FILE *fp = fopen(path, "wb");
+        fwrite(data->data_ptr, 1, data->data_len, fp);
+        fclose(fp);
+
+        s_reg_received++;
+
+        ESP_LOGI("WS", "Saved %s (%d/%d)", path, s_reg_received, s_reg_expected);
+
+        if (s_reg_received == s_reg_expected) {
+            s_registering = false;
+            ESP_LOGI("WS", "Done receiving images → start enroll");
+        }
     }
     break;
 
@@ -63,8 +119,8 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base,
 esp_err_t websocket_init(const char *uri) {
   esp_websocket_client_config_t ws_cfg = {};
   ws_cfg.uri = uri;
-  ws_cfg.buffer_size = 64 * 1024; // 64 KB buffer cho JPEG
-  ws_cfg.task_stack = 6 * 1024;
+  ws_cfg.buffer_size = 16 * 1024; // 64 KB buffer cho JPEG
+  ws_cfg.task_stack = 16 * 1024;
   ws_cfg.task_prio = 5;
 
   s_ws_client = esp_websocket_client_init(&ws_cfg);

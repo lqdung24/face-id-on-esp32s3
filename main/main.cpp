@@ -27,14 +27,18 @@
 #include "dl_detect_define.hpp"
 #include "event.hpp"
 #include "json_builder.hpp"
+#include <storage.hpp>
 
 static const char *TAG = "main";
 
 /* ── Cấu hình ───────────────────────────────────────────── */
+// #define WIFI_SSID       "Hust_B1"
+// #define WIFI_PASS       ""
+// #define WS_SERVER_URI   "ws://192.168.128.115:5000/ws"
+
 #define WIFI_SSID       "panda"
 #define WIFI_PASS       "mybirthday"
 #define WS_SERVER_URI   "ws://172.20.10.4:5000/ws"
-
 
 // home config
 // #define WIFI_SSID       "B13-405"
@@ -42,9 +46,11 @@ static const char *TAG = "main";
 // #define WS_SERVER_URI   "ws://192.168.1.15:5000/ws"
 /* ── Shared state ────────────────────────────────────────── */
 static std::atomic<bool> s_streaming{false};
+static bool sending = false;
+
 
 /* ── Command callback từ WebSocket ───────────────────────── */
-static void on_ws_command(const char *action)
+static void on_ws_command(const char *action, const char *name, int count)
 {
     if (strcmp(action, "start_stream") == 0) {
         s_streaming.store(true);
@@ -61,8 +67,9 @@ static void on_ws_command(const char *action)
     else if (strcmp(action, "stop_ai") == 0) {
         ai_set_running(false);
         ESP_LOGI(TAG, ">>> AI STOPPED");
-    }
-    else {
+    }else if (strcmp(action, "register") == 0) {
+        ESP_LOGI(TAG, "regis");
+    }else {
         ESP_LOGW(TAG, "Unknown command: %s", action);
     }
 }
@@ -85,8 +92,12 @@ static void stream_task(void *arg)
             ESP_LOGW(TAG, "capture_jpeg failed");
             continue;
         }
-
-        int sent = websocket_send_bin(buf, jpg_len);
+        int sent = -1;
+        if (!sending) {
+            sending = true;
+            sent = websocket_send_bin(buf, jpg_len);
+            sending = false;
+        }
 
         if (sent < 0) {
             ESP_LOGW(TAG, "Failed to send frame (%zu bytes)", jpg_len);
@@ -113,7 +124,7 @@ static void ai_task(void *arg)
         camera_fb_t *fb = camera_capture();
 
         if (fb) {
-            std::vector<face_event_t> result;
+            std::__cxx11::list<dl::detect::result_t> result;
             int face = ai_detect_faces(fb, result);
 
             /* Gửi kết quả detect về server */
@@ -152,6 +163,7 @@ extern "C" void app_main(void)
     /* 2. WiFi – init và ĐỢI cho đến khi có IP */
     ESP_LOGI(TAG, "[1/5] Initializing WiFi...");
     ESP_ERROR_CHECK(wifi_init_sta(WIFI_SSID, WIFI_PASS));
+    xTaskCreate(wifi_scan_task, "scan", 4096, NULL, 5, NULL);
     wifi_wait_connected();
     ESP_LOGI(TAG, "WiFi connected! IP: %s", wifi_get_ip_str());
 
@@ -172,6 +184,8 @@ extern "C" void app_main(void)
     /* 6. Tạo tasks */
     ESP_LOGI(TAG, "[5/5] Creating tasks...");
 
+    init_spiffs();
+
     xTaskCreatePinnedToCore(
         stream_task,        // Function
         "stream_task",      // Name
@@ -181,6 +195,7 @@ extern "C" void app_main(void)
         nullptr,            // Handle
         0                   // Core 0
     );
+    // ai_set_running(true);
 
     xTaskCreatePinnedToCore(
         ai_task,            // Function

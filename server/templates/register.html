@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HUST Smart Lock – Đăng Ký Khuôn Mặt</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0d0f14;--surface:#161a24;--card:#1e2330;--border:#2a3045;--accent:#4f8ef7;--success:#22c55e;--danger:#ef4444;--warn:#f59e0b;--text:#e2e8f0;--muted:#64748b;--purple:#a855f7}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+    /* NAV */
+    nav{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px}
+    nav .logo{width:38px;height:38px;background:linear-gradient(135deg,var(--accent),var(--purple));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px}
+    nav h1{font-size:1.1rem;font-weight:700}
+    nav a{color:var(--muted);text-decoration:none;font-size:.85rem;margin-left:auto;transition:color .2s}
+    nav a:hover{color:var(--text)}
+
+    .container{max-width:860px;margin:30px auto;padding:0 20px}
+
+    /* CARD */
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;margin-bottom:24px}
+    .card h2{font-size:.85rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:18px}
+
+    /* INPUT */
+    .input-group{margin-bottom:20px}
+    .input-group label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:6px;font-weight:500}
+    .input-group input[type=text]{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;color:var(--text);font-size:.95rem;outline:none;transition:border .2s}
+    .input-group input[type=text]:focus{border-color:var(--accent)}
+
+    /* TABS */
+    .tabs{display:flex;gap:8px;margin-bottom:20px}
+    .tab-btn{flex:1;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--muted);font-weight:600;font-size:.85rem;cursor:pointer;transition:all .25s;text-align:center}
+    .tab-btn:hover{border-color:var(--accent);color:var(--text)}
+    .tab-btn.active{background:linear-gradient(135deg,var(--accent),var(--purple));color:#fff;border-color:transparent}
+    .tab-content{display:none}
+    .tab-content.active{display:block}
+
+    /* UPLOAD AREA */
+    .upload-area{border:2px dashed var(--border);border-radius:14px;padding:40px 20px;text-align:center;cursor:pointer;transition:all .3s;position:relative}
+    .upload-area:hover,.upload-area.dragover{border-color:var(--accent);background:rgba(79,142,247,.06)}
+    .upload-area input{display:none}
+    .upload-area .icon{font-size:2.4rem;margin-bottom:10px}
+    .upload-area p{color:var(--muted);font-size:.85rem}
+    .upload-area p strong{color:var(--accent)}
+
+    /* DEVICE CAM */
+    .cam-container{position:relative;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
+    .cam-container img{width:100%;height:100%;object-fit:contain;transform:scaleX(-1)}
+    .cam-container .no-stream{color:var(--muted);font-size:.85rem;position:absolute}
+    .cam-controls{display:flex;gap:10px;margin-top:14px;justify-content:center}
+    .stream-status{text-align:center;margin-top:8px;font-size:.78rem;color:var(--muted)}
+    .stream-status .live{color:var(--danger);font-weight:700}
+
+    /* BTN */
+    .btn{padding:12px 22px;border:none;border-radius:10px;font-weight:600;font-size:.88rem;cursor:pointer;transition:all .25s;display:inline-flex;align-items:center;gap:8px}
+    .btn-primary{background:linear-gradient(135deg,var(--accent),var(--purple));color:#fff}
+    .btn-primary:hover{filter:brightness(1.15);transform:translateY(-1px)}
+    .btn-primary:disabled{opacity:.4;cursor:not-allowed;transform:none;filter:none}
+    .btn-outline{background:transparent;border:1px solid var(--border);color:var(--text)}
+    .btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+    .btn-danger{background:var(--danger);color:#fff}
+    .btn-danger:hover{filter:brightness(1.15)}
+    .btn-success{background:var(--success);color:#fff}
+
+    /* PHOTO GRID */
+    .photo-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:18px}
+    .photo-slot{aspect-ratio:1;background:var(--surface);border:2px dashed var(--border);border-radius:12px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;transition:all .3s}
+    .photo-slot.filled{border-style:solid;border-color:var(--success)}
+    .photo-slot img{width:100%;height:100%;object-fit:cover}
+    .photo-slot .slot-label{color:var(--muted);font-size:.75rem;font-weight:600}
+    .photo-slot .remove-btn{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:var(--danger);color:#fff;border:none;cursor:pointer;font-size:14px;display:none;align-items:center;justify-content:center;z-index:2}
+    .photo-slot.filled .remove-btn{display:flex}
+
+    /* PROGRESS */
+    .progress-bar{height:6px;background:var(--surface);border-radius:3px;margin-top:14px;overflow:hidden}
+    .progress-bar .fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--purple));border-radius:3px;transition:width .4s ease}
+
+    /* STATUS MSG */
+    .status-msg{margin-top:16px;padding:14px 18px;border-radius:10px;font-size:.88rem;font-weight:500;display:none;animation:fadeIn .3s}
+    .status-msg.success{display:block;background:rgba(34,197,94,.12);color:var(--success);border:1px solid rgba(34,197,94,.25)}
+    .status-msg.error{display:block;background:rgba(239,68,68,.12);color:var(--danger);border:1px solid rgba(239,68,68,.25)}
+    .status-msg.info{display:block;background:rgba(79,142,247,.12);color:var(--accent);border:1px solid rgba(79,142,247,.25)}
+
+    /* COUNTER */
+    .photo-counter{display:flex;align-items:center;gap:10px;margin-top:12px}
+    .photo-counter .count{font-size:1.6rem;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .photo-counter span{color:var(--muted);font-size:.85rem}
+
+    /* SUBMIT ROW */
+    .submit-row{display:flex;justify-content:flex-end;gap:12px;margin-top:20px}
+
+    @keyframes fadeIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+    @media(max-width:520px){.photo-grid{grid-template-columns:repeat(2,1fr)}}
+
+    /* FLASH EFFECT */
+    .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:10}
+    .flash.active{animation:flash-anim .3s ease}
+    @keyframes flash-anim{0%{opacity:.8}100%{opacity:0}}
+
+    /* SPINNER */
+    .spinner{width:20px;height:20px;border:3px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+<nav>
+  <div class="logo">🧑</div>
+  <h1>Đăng Ký Khuôn Mặt</h1>
+  <a href="/">← Dashboard</a>
+</nav>
+
+<div class="container">
+  <!-- NAME INPUT -->
+  <div class="card">
+    <h2>👤 Thông tin</h2>
+    <div class="input-group">
+      <label for="person-name">Tên người dùng</label>
+      <input type="text" id="person-name" placeholder="Nhập tên, ví dụ: Nguyen Van A">
+    </div>
+    <div class="photo-counter">
+      <div class="count" id="counter-text">0 / 4</div>
+      <span>ảnh đã chọn (tối thiểu 1)</span>
+    </div>
+    <div class="progress-bar"><div class="fill" id="progress-fill" style="width:0%"></div></div>
+  </div>
+
+  <!-- PHOTO METHOD -->
+  <div class="card">
+    <h2>📸 Chọn ảnh khuôn mặt (1–4 ảnh)</h2>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('upload')">📁 Tải ảnh lên</button>
+      <button class="tab-btn" onclick="switchTab('device')">📷 Chụp từ thiết bị</button>
+    </div>
+
+    <!-- Upload Tab -->
+    <div id="tab-upload" class="tab-content active">
+      <div class="upload-area" id="drop-area" onclick="document.getElementById('file-input').click()">
+        <input type="file" id="file-input" accept="image/*" multiple>
+        <div class="icon">📁</div>
+        <p>Kéo thả ảnh vào đây hoặc <strong>nhấn để chọn</strong></p>
+        <p style="margin-top:6px;font-size:.78rem">PNG, JPG – từ 1 đến 4 ảnh</p>
+      </div>
+    </div>
+
+    <!-- Device Camera Tab -->
+    <div id="tab-device" class="tab-content">
+      <div class="cam-container" id="cam-box">
+        <div class="no-stream" id="no-stream-msg">Chưa có stream… Nhấn "Bật Stream" để bắt đầu</div>
+        <img id="device-img" alt="device frame" style="display:none">
+        <div class="flash" id="flash"></div>
+      </div>
+      <div class="stream-status" id="stream-status"></div>
+      <div class="cam-controls">
+        <button class="btn btn-outline" id="cam-start-btn" onclick="startDeviceStream()">🎥 Bật Stream</button>
+        <button class="btn btn-primary" onclick="capturePhoto()" id="capture-btn" disabled>📸 Chụp ảnh</button>
+        <button class="btn btn-outline" onclick="stopDeviceStream()">⏹ Tắt Stream</button>
+      </div>
+    </div>
+
+    <!-- Photo Preview Grid -->
+    <div class="photo-grid" id="photo-grid">
+      <div class="photo-slot" data-idx="0"><span class="slot-label">Ảnh 1</span></div>
+      <div class="photo-slot" data-idx="1"><span class="slot-label">Ảnh 2</span></div>
+      <div class="photo-slot" data-idx="2"><span class="slot-label">Ảnh 3</span></div>
+      <div class="photo-slot" data-idx="3"><span class="slot-label">Ảnh 4</span></div>
+    </div>
+  </div>
+
+  <!-- SUBMIT -->
+  <div class="card">
+    <div class="submit-row">
+      <button class="btn btn-outline" onclick="resetAll()">🔄 Làm lại</button>
+      <button class="btn btn-primary" id="submit-btn" onclick="submitRegistration()" disabled>
+        ✅ Đăng ký khuôn mặt
+      </button>
+    </div>
+    <div class="status-msg" id="status-msg"></div>
+  </div>
+</div>
+
+<script>
+const MIN_REQUIRED = 1;
+const MAX_PHOTOS = 4;
+let photos = [null, null, null, null]; // base64 strings
+let ws = null;
+let deviceStreaming = false;
+let currentFrameB64 = null; // latest frame from ESP32
+
+/* ── WebSocket ── */
+function connectWS() {
+  ws = new WebSocket('ws://' + location.host + '/ws');
+  ws.onopen = () => { console.log('[Register] WS connected'); };
+  ws.onclose = () => { setTimeout(connectWS, 2000); };
+  ws.onmessage = (e) => {
+    try {
+      const d = JSON.parse(e.data);
+      if (d.type === 'esp_frame') {
+        currentFrameB64 = d.frame_b64;
+        const img = document.getElementById('device-img');
+        img.src = 'data:image/jpeg;base64,' + d.frame_b64;
+        img.style.display = 'block';
+        document.getElementById('no-stream-msg').style.display = 'none';
+        document.getElementById('capture-btn').disabled = false;
+        document.getElementById('stream-status').innerHTML = '<span class="live">● LIVE</span> Đang nhận stream từ thiết bị';
+      }
+    } catch(err) {}
+  };
+}
+connectWS();
+
+/* ── Tabs ── */
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', (tab === 'upload' && i === 0) || (tab === 'device' && i === 1));
+  });
+  document.getElementById('tab-upload').classList.toggle('active', tab === 'upload');
+  document.getElementById('tab-device').classList.toggle('active', tab === 'device');
+}
+
+/* ── UI Sync ── */
+function syncUI() {
+  const count = photos.filter(p => p !== null).length;
+  document.getElementById('counter-text').textContent = count + ' / ' + MAX_PHOTOS;
+  document.getElementById('progress-fill').style.width = (count / MAX_PHOTOS * 100) + '%';
+  document.getElementById('submit-btn').disabled = count < MIN_REQUIRED || !document.getElementById('person-name').value.trim();
+
+  document.querySelectorAll('.photo-slot').forEach((slot, i) => {
+    slot.classList.toggle('filled', photos[i] !== null);
+    if (photos[i]) {
+      slot.innerHTML = `<img src="${photos[i]}" alt="photo ${i+1}"><button class="remove-btn" onclick="removePhoto(${i})">✕</button>`;
+    } else {
+      slot.innerHTML = `<span class="slot-label">Ảnh ${i+1}</span>`;
+    }
+  });
+}
+
+function getNextSlot() {
+  return photos.indexOf(null);
+}
+
+function removePhoto(idx) {
+  photos[idx] = null;
+  syncUI();
+}
+
+function resetAll() {
+  photos = [null, null, null, null];
+  document.getElementById('person-name').value = '';
+  document.getElementById('status-msg').className = 'status-msg';
+  syncUI();
+}
+
+/* ── File Upload ── */
+const dropArea = document.getElementById('drop-area');
+const fileInput = document.getElementById('file-input');
+
+['dragenter','dragover'].forEach(ev => dropArea.addEventListener(ev, e => { e.preventDefault(); dropArea.classList.add('dragover'); }));
+['dragleave','drop'].forEach(ev => dropArea.addEventListener(ev, e => { e.preventDefault(); dropArea.classList.remove('dragover'); }));
+
+dropArea.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
+fileInput.addEventListener('change', e => handleFiles(e.target.files));
+
+function handleFiles(files) {
+  for (const file of files) {
+    const slot = getNextSlot();
+    if (slot === -1) break;
+    const reader = new FileReader();
+    reader.onload = e => { photos[slot] = e.target.result; syncUI(); };
+    reader.readAsDataURL(file);
+  }
+  fileInput.value = '';
+}
+
+/* ── Device Camera Stream ── */
+function startDeviceStream() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'cmd_to_esp', action: 'start_stream' }));
+    deviceStreaming = true;
+    document.getElementById('cam-start-btn').textContent = '🎥 Đang stream…';
+    document.getElementById('stream-status').innerHTML = 'Đang chờ frame từ thiết bị…';
+  } else {
+    showStatus('Chưa kết nối WebSocket, đang thử lại…', 'error');
+  }
+}
+
+function stopDeviceStream() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'cmd_to_esp', action: 'stop_stream' }));
+  }
+  deviceStreaming = false;
+  currentFrameB64 = null;
+  document.getElementById('capture-btn').disabled = true;
+  document.getElementById('cam-start-btn').textContent = '🎥 Bật Stream';
+  document.getElementById('stream-status').innerHTML = '';
+}
+
+function capturePhoto() {
+  const slot = getNextSlot();
+  if (slot === -1) { showStatus('Đã đủ ' + MAX_PHOTOS + ' ảnh!', 'info'); return; }
+  if (!currentFrameB64) { showStatus('Chưa có frame từ thiết bị!', 'error'); return; }
+
+  photos[slot] = 'data:image/jpeg;base64,' + currentFrameB64;
+
+  // Flash effect
+  const flash = document.getElementById('flash');
+  flash.classList.remove('active');
+  void flash.offsetWidth;
+  flash.classList.add('active');
+
+  syncUI();
+  if (getNextSlot() === -1) showStatus('Đã đủ ' + MAX_PHOTOS + ' ảnh! Nhấn "Đăng ký khuôn mặt" để hoàn tất.', 'success');
+}
+
+/* ── Submit ── */
+async function submitRegistration() {
+  const name = document.getElementById('person-name').value.trim();
+  if (!name) { showStatus('Vui lòng nhập tên.', 'error'); return; }
+  const count = photos.filter(p => p !== null).length;
+  if (count < MIN_REQUIRED) { showStatus(`Cần ít nhất ${MIN_REQUIRED} ảnh, hiện có ${count}.`, 'error'); return; }
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<div class="spinner"></div> Đang xử lý...';
+
+  try {
+    const resp = await fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, photos: photos.filter(p => p !== null) })
+    });
+    const result = await resp.json();
+    if (resp.ok) {
+      showStatus('✅ Đăng ký thành công cho "' + result.name + '"! Đã lưu ' + result.saved + ' ảnh.', 'success');
+      setTimeout(() => resetAll(), 3000);
+    } else {
+      showStatus('❌ Lỗi: ' + (result.error || 'Unknown'), 'error');
+    }
+  } catch (err) {
+    showStatus('❌ Lỗi kết nối: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '✅ Đăng ký khuôn mặt';
+    syncUI();
+  }
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.className = 'status-msg ' + type;
+}
+
+/* Name input triggers button state */
+document.getElementById('person-name').addEventListener('input', syncUI);
+
+syncUI();
+</script>
+</body>
+</html>

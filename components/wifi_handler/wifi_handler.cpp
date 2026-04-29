@@ -77,14 +77,39 @@ esp_err_t wifi_init_sta(const char *ssid, const char *password)
             ssid, sizeof(wifi_cfg.sta.ssid));
     strlcpy(reinterpret_cast<char *>(wifi_cfg.sta.password),
             password, sizeof(wifi_cfg.sta.password));
-    wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    if (strlen(password) == 0) {
+        wifi_cfg.sta.threshold.authmode = WIFI_AUTH_OPEN;
+    } else {
+        wifi_cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    }
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
 
     ESP_LOGI(TAG, "wifi_init_sta() done. Waiting for connection...");
+
     return ESP_OK;
+}
+
+void wifi_scan_task(void *pv) {
+    uint16_t number = 5;
+    wifi_ap_record_t *ap_info =
+        (wifi_ap_record_t*)malloc(sizeof(wifi_ap_record_t) * number);
+    uint16_t ap_count = 0;
+
+    esp_wifi_scan_start(NULL, true);
+
+    esp_wifi_scan_get_ap_records(&number, ap_info);
+    esp_wifi_scan_get_ap_num(&ap_count);
+
+    for (int i = 0; i < ap_count; i++) {
+        ESP_LOGI("WIFI", "SSID: %s RSSI: %d",
+                 ap_info[i].ssid, ap_info[i].rssi);
+    }
+
+    free(ap_info);
+    vTaskDelete(NULL);
 }
 
 void wifi_wait_connected(void)

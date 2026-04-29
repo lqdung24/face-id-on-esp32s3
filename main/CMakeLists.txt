@@ -12,4 +12,5 @@ idf_component_register(
         freertos
         common
         json_builder
+        storage
 )

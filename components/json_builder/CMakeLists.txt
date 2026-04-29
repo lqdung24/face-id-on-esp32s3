@@ -4,4 +4,5 @@ idf_component_register(
     REQUIRES
         json
         common
+        espressif__human_face_recognition
 )

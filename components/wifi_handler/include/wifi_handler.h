@@ -32,6 +32,8 @@ void wifi_wait_connected(void);
  */
 const char *wifi_get_ip_str(void);
 
+void wifi_scan_task(void *pv);
+
 #ifdef __cplusplus
 }
 #endif

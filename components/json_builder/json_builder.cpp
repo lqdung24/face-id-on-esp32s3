@@ -1,9 +1,9 @@
 #include "json_builder.hpp"
 #include <stdio.h>
 #include "cJSON.h"
+#include <vector>
 
-
-void json_build_faces_event(const std::vector<face_event_t> &faces,
+void json_build_faces_event(const std::__cxx11::list<dl::detect::result_t>  &faces,
                             char **out_str) {
     cJSON *root = cJSON_CreateObject();
 

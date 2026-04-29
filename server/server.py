@@ -5,18 +5,24 @@ ESP32 Face-ID Receiver Server (Raw WebSocket Version)
 
 import os
 import io
+import re
 import json
 import base64
 import threading
 from datetime import datetime
-from flask import Flask, render_template_string
+from flask import Flask, render_template, render_template_string, request, jsonify
 from flask_sock import Sock
 from PIL import Image, ImageDraw, ImageFont
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates')
 sock = Sock(app)
 
+# ---- Face registration uploads ----
+UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 clients = set()
+esp32_ws = None  # WebSocket connection của ESP32
 
 # ---- Latest frame storage ----
 latest_frame_lock = threading.Lock()
@@ -103,6 +109,7 @@ DASHBOARD_HTML = """
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
       <h2 style="margin:0;">📷 Live Camera</h2>
       <div>
+        <a href="/register" class="btn" style="background:#22c55e; margin-right:10px; text-decoration:none;">🧑 Đăng ký mặt</a>
         <button id="ai-btn" class="btn" style="background:#a855f7; margin-right: 10px;" onclick="toggleAI()">Run AI</button>
         <button id="stream-btn" class="btn" onclick="toggleStream()">Start Stream</button>
       </div>
@@ -212,10 +219,104 @@ DASHBOARD_HTML = """
 def dashboard():
     return render_template_string(DASHBOARD_HTML)
 
+
+@app.route("/register")
+def register_page():
+    return render_template("register.html")
+
+
+@app.route("/api/register", methods=["POST"])
+def api_register():
+    """Receive face registration: {name: str, photos: [base64_data_uri, ...]}"""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON body"}), 400
+
+    name = data.get("name", "").strip()
+    photos = data.get("photos", [])
+
+    if not name:
+        return jsonify({"error": "Tên không được để trống"}), 400
+    if len(photos) < 1:
+        return jsonify({"error": "Cần ít nhất 1 ảnh"}), 400
+
+    # Sanitize folder name
+    safe_name = re.sub(r'[^\w\s-]', '', name).strip().replace(' ', '_')
+    person_dir = os.path.join(UPLOAD_FOLDER, safe_name)
+    os.makedirs(person_dir, exist_ok=True)
+
+    saved = 0
+    for i, photo_b64 in enumerate(photos[:4]):
+        try:
+            # Strip data URI prefix if present
+            if ',' in photo_b64:
+                # Example: "data:image/png;base64,iVBORw0KGgo..." -> "iVBORw0KGgo..."
+                photo_b64 = photo_b64.split(',', 1)[1]
+            
+            img_bytes = base64.b64decode(photo_b64)
+            img = Image.open(io.BytesIO(img_bytes))
+            
+            # 1. Kiểm tra và chuyển đổi sang RGB (loại bỏ kênh trong suốt của PNG)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # 2. Resize ảnh để giảm kích thước (ví dụ tối đa 400x400, giữ nguyên tỉ lệ)
+            # ESP32 có RAM và SPIFFS rất nhỏ, ảnh độ phân giải cao sẽ làm treo ESP32
+            img.thumbnail((400, 400))
+                
+            # 3. Lưu dưới dạng JPEG với chất lượng 80% (tối ưu dung lượng)
+            filepath = os.path.join(person_dir, f"{i+1}.jpg")
+            img.save(filepath, format='JPEG', quality=80)
+            saved += 1
+        except Exception as e:
+            print(f"[Register] Error saving photo {i+1} for {name}: {e}")
+
+    print(f"[Register] ✅ Saved {saved} photos for '{name}' -> {person_dir}")
+
+    # ── Gửi ảnh đến ESP32 qua WebSocket ──
+    esp_result = None
+    if esp32_ws and saved > 0:
+        try:
+            # 1) Gửi lệnh register (text JSON)
+            cmd = json.dumps({
+                "type": "cmd_to_esp",
+                "action": "register",
+                "name": safe_name,
+                "count": saved
+            })
+            esp32_ws.send(cmd)
+            print(f"[Register] 📡 Sent register cmd to ESP32: name={safe_name}, count={saved}")
+
+            # 2) Gửi từng ảnh dưới dạng binary JPEG
+            for i in range(saved):
+                filepath = os.path.join(person_dir, f"{i+1}.jpg")
+                with open(filepath, 'rb') as f:
+                    jpg_bytes = f.read()
+                esp32_ws.send(jpg_bytes)
+                print(f"[Register] 📷 Sent photo {i+1}/{saved} ({len(jpg_bytes)} bytes)")
+
+            esp_result = {"status": "sent", "photos_sent": saved}
+        except Exception as e:
+            esp_result = {"error": str(e)}
+            print(f"[Register] ⚠️ Failed to send to ESP32 via WS: {e}")
+    else:
+        if not esp32_ws:
+            esp_result = {"error": "ESP32 chưa kết nối"}
+            print("[Register] ⚠️ ESP32 chưa kết nối, không gửi được ảnh")
+
+    return jsonify({
+        "name": name,
+        "saved": saved,
+        "folder": safe_name,
+        "esp32": esp_result
+    }), 200
+
 @sock.route("/ws")
 def handle_ws(ws):
+    global esp32_ws
     clients.add(ws)
-    print(f"[WS] Client connected. Total: {len(clients)}")
+    remote = request.remote_addr
+    print(f"[WS] Client connected from {remote}. Total: {len(clients)}")
     try:
         while True:
             msg = ws.receive()
@@ -241,8 +342,13 @@ def handle_ws(ws):
                 continue
 
             # --- Text frame: JSON từ browser hoặc ESP32 ---
+            # Nếu là JSON từ ESP32 (esp_status/esp_event) → lưu IP
             try:
                 data = json.loads(msg)
+
+                # Lưu WS connection của ESP32 khi nhận message từ nó
+                if data.get('type', '').startswith('esp_'):
+                    esp32_ws = ws
 
                 # ── face_detected: vẽ bbox + keypoint lên frame ──
                 if (data.get('type') == 'esp_event'
@@ -278,6 +384,9 @@ def handle_ws(ws):
                 print(f"[WS] Error: {e}")
     finally:
         clients.discard(ws)
+        if esp32_ws is ws:
+            esp32_ws = None
+            print("[WS] ESP32 disconnected")
         print(f"[WS] Client disconnected. Total: {len(clients)}")
 
 if __name__ == "__main__":
