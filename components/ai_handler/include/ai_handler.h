@@ -5,11 +5,20 @@
 #include "dl_detect_define.hpp"
 #include "event.hpp"
 #include "human_face_recognition.hpp"
-
+#include "dl_image_jpeg.hpp"
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+typedef struct{
+    std::vector<uint8_t*> imgs;
+    std::vector<size_t> lens;
+    char name[32];
+} EnrollCtx;
+
+void enroll_task(void *arg);
+
+void enroll_face();
 
 /**
  * @brief Khởi tạo AI face detection model.
@@ -48,6 +57,7 @@ void ai_set_running(bool running);
  * @return true nếu AI đang chạy
  */
 bool ai_is_running(void);
+
 
 #ifdef __cplusplus
 }

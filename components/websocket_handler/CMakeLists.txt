@@ -7,4 +7,5 @@ idf_component_register(
         freertos
         log
         json
+        ai_handler
 )

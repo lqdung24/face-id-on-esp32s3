@@ -100,7 +100,10 @@ int ai_detect_faces(camera_fb_t *fb, std::__cxx11::list<dl::detect::result_t> &r
     auto reco_results = s_embedding->recognize(img, results);
     t1 = esp_timer_get_time();
 
-    ESP_LOGI(TAG, "AI recognize time: %.2f ms, similarity", (t1 - t0) / 1000.0, reco_results);
+    ESP_LOGI(TAG, "AI recognize time: %.2f ms, size: %d", (t1 - t0) / 1000.0, reco_results.size());
+    for (auto &r : reco_results) {
+        ESP_LOGI(TAG, "id=%d similarity=%.4f", r.id, r.similarity);
+    }
 
     for (auto &r : results) {
                 // 🔹 log bbox
@@ -126,6 +129,68 @@ int ai_detect_faces(camera_fb_t *fb, std::__cxx11::list<dl::detect::result_t> &r
     free(rgb_buf);
     return results.size();
 }
+
+void enroll_task(void *arg){
+    EnrollCtx* ctx = (EnrollCtx*) arg;
+
+    ESP_LOGI("ENROLL", "User: %s, imgs: %d", ctx->name, ctx->imgs.size());
+
+    for (int i = 0; i < ctx->imgs.size(); i++) {
+
+        uint8_t* psram_buf = ctx->imgs[i];
+        size_t len = ctx->lens[i];
+
+        uint8_t* buf = (uint8_t*) malloc(len);
+        if (!buf) {
+            ESP_LOGE("ENROLL", "malloc failed");
+            continue;
+        }
+        memcpy(buf, psram_buf, len);
+
+        free(psram_buf); // giải phóng PSRAM sớm
+
+        // =========================
+        // 1. Decode JPEG
+        // =========================
+        dl::image::jpeg_img_t jpeg_img;
+        jpeg_img.data = buf;
+        jpeg_img.data_len = len;
+        dl::image::img_t img = dl::image::sw_decode_jpeg(
+            jpeg_img,
+            dl::image::DL_IMAGE_PIX_TYPE_RGB888
+        );
+        if (img.data == NULL) {
+            ESP_LOGW("ENROLL", "Decode failed img %d", i);
+            free(buf);
+            continue;
+        }
+
+        // =========================
+        // 2. Detect face
+        // =========================
+        auto detect_res = s_detector->run(img);
+        ESP_LOGI(TAG, "enroll detected: %d",detect_res.size());
+        // =========================
+        // 3. Extract feature
+        // =========================
+        auto res = s_embedding->enroll(img, detect_res);
+
+        if (res == ESP_FAIL) {
+            ESP_LOGW("ENROLL", "Feature fail img %d", i);
+            continue;
+        }
+    }
+
+    ESP_LOGI("ENROLL", "Done user: %s", ctx->name);
+
+    delete ctx;
+    vTaskDelete(NULL);
+}
+
+void enroll_face(){
+
+}
+
 
 void ai_set_running(bool running)
 {

@@ -40,6 +40,10 @@ static const char *TAG = "main";
 #define WIFI_PASS       "mybirthday"
 #define WS_SERVER_URI   "ws://172.20.10.4:5000/ws"
 
+// #define WIFI_SSID       "lqdung"
+// #define WIFI_PASS       "196197198"
+// #define WS_SERVER_URI   "ws://10.84.159.176:5000/ws"
+
 // home config
 // #define WIFI_SSID       "B13-405"
 // #define WIFI_PASS       "12346789"
@@ -68,7 +72,7 @@ static void on_ws_command(const char *action, const char *name, int count)
         ai_set_running(false);
         ESP_LOGI(TAG, ">>> AI STOPPED");
     }else if (strcmp(action, "register") == 0) {
-        ESP_LOGI(TAG, "regis");
+        ESP_LOGI(TAG, ">>> REGIS FACE");
     }else {
         ESP_LOGW(TAG, "Unknown command: %s", action);
     }
@@ -106,7 +110,7 @@ static void stream_task(void *arg)
         free(buf);  // 🔥 luôn free (success hay fail)
 
         /* ~15 FPS */
-        vTaskDelay(pdMS_TO_TICKS(66));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
@@ -142,6 +146,22 @@ static void ai_task(void *arg)
 
         /* AI chạy chậm hơn stream, ~5 FPS */
         vTaskDelay(pdMS_TO_TICKS(200));
+    }
+}
+
+/* ── Heartbeat Task: gửi esp_status mỗi 4s ──────────────── */
+static void heartbeat_task(void *arg)
+{
+    ESP_LOGI(TAG, "heartbeat_task running on core %d", xPortGetCoreID());
+    char buf[128];
+
+    while (true) {
+        if (websocket_is_connected()) {
+            snprintf(buf, sizeof(buf),
+                     "{\"type\":\"esp_status\",\"name\":\"heartbeat\",\"faces_enrolled\":0}");
+            websocket_send_text(buf);
+        }
+        vTaskDelay(pdMS_TO_TICKS(4000));
     }
 }
 
@@ -200,11 +220,20 @@ extern "C" void app_main(void)
     xTaskCreatePinnedToCore(
         ai_task,            // Function
         "ai_task",          // Name
-        8192,               // Stack size (AI cần nhiều hơn)
+        10000,               // Stack size (AI cần nhiều hơn)
         nullptr,            // Parameter
         4,                  // Priority (thấp hơn stream)
         nullptr,            // Handle
         1                   // Core 1
+    );
+
+    xTaskCreate(
+        heartbeat_task,     // Function
+        "heartbeat",        // Name
+        3072,               // Stack size
+        nullptr,            // Parameter
+        2,                  // Priority (thấp)
+        nullptr             // Handle
     );
 
     ESP_LOGI(TAG, "========================================");

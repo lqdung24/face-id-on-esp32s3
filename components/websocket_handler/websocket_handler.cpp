@@ -7,6 +7,7 @@
 #include "cJSON.h"
 #include <cstring>
 #include <vector>
+#include <stdint.h>
 
 
 static const char *TAG = "ws_handler";
@@ -17,6 +18,12 @@ static bool s_registering = false;
 static char s_reg_name[32] = {0};
 static int s_reg_expected = 0;
 static int s_reg_received = 0;
+static uint8_t *img_buf = NULL;
+static int img_len = 0;
+static std::vector<uint8_t*> s_imgs;
+static std::vector<size_t> s_lens;
+static bool s_enrolling = false;
+
 
 /* ── WebSocket Event Handler ─────────────────────────────── */
 static void websocket_event_handler(void *arg, esp_event_base_t event_base,
@@ -73,6 +80,10 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base,
                     // Truyền tất cả vào callback
                     s_cmd_callback(action->valuestring, name_str, count_val);
                     if(strcmp(action->valuestring, "register") ==0){
+                        if (s_enrolling) {
+                            ESP_LOGW(TAG, "Busy enrolling, ignore new request");
+                            return;
+                        }
                         s_registering = true;
 
                         strncpy(s_reg_name, name_str, sizeof(s_reg_name) - 1);
@@ -86,22 +97,57 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base,
             cJSON_Delete(root);
         }
     }
-    else if (data->op_code == 0x02 && s_registering) {
+    if (data->op_code == 0x02 && s_registering) {
 
-        char path[128];
-        sprintf(path, "/spiffs/%s_%d.jpg", s_reg_name, s_reg_received);
+        if (s_enrolling) {
+            ESP_LOGW("WS", "Busy enrolling, ignore new request");
+            return;
+        }
 
-        FILE *fp = fopen(path, "wb");
-        fwrite(data->data_ptr, 1, data->data_len, fp);
-        fclose(fp);
+        if (data->payload_offset == 0) {
+            // frame đầu tiên
+            img_buf = (uint8_t*) malloc(data->payload_len);
+            img_len = 0;
+        }
 
-        s_reg_received++;
+        memcpy(img_buf + data->payload_offset, data->data_ptr, data->data_len);
+        img_len += data->data_len;
 
-        ESP_LOGI("WS", "Saved %s (%d/%d)", path, s_reg_received, s_reg_expected);
+        if (data->payload_offset + data->data_len == data->payload_len) {
+            uint8_t* buf = (uint8_t*) heap_caps_malloc(data->payload_len, MALLOC_CAP_SPIRAM);
+            memcpy(buf, img_buf, data->payload_len);
 
-        if (s_reg_received == s_reg_expected) {
-            s_registering = false;
-            ESP_LOGI("WS", "Done receiving images → start enroll");
+            s_imgs.push_back(buf);
+            s_lens.push_back(data->payload_len);
+            
+            free(img_buf);
+            img_buf = NULL;
+
+            s_reg_received++;
+
+            ESP_LOGI("WS", "Saved full image (%d/%d) (len %d)", s_reg_received, s_reg_expected, img_len);
+
+            if (s_reg_received == s_reg_expected) {
+                s_registering = false;
+                ESP_LOGI("WS", "All images received → enroll");
+                
+                if (!s_enrolling) {
+                    s_enrolling = true;
+                    EnrollCtx* ctx = new EnrollCtx;
+
+                    auto imgs = s_imgs;
+                    auto lens = s_lens;
+
+                    s_imgs.clear();
+                    s_lens.clear();
+
+                    ctx->imgs = imgs;
+                    ctx->lens = lens;
+                    strcpy(ctx->name, s_reg_name);
+
+                    xTaskCreate(enroll_task, "enroll", 10000, ctx, 5, NULL);
+                }
+            }
         }
     }
     break;
@@ -117,23 +163,23 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base,
 
 /* ── Public API ──────────────────────────────────────────── */
 esp_err_t websocket_init(const char *uri) {
-  esp_websocket_client_config_t ws_cfg = {};
-  ws_cfg.uri = uri;
-  ws_cfg.buffer_size = 16 * 1024; // 64 KB buffer cho JPEG
-  ws_cfg.task_stack = 16 * 1024;
-  ws_cfg.task_prio = 5;
+    esp_websocket_client_config_t ws_cfg = {};
+    ws_cfg.uri = uri;
+    ws_cfg.buffer_size = 16 * 1024; // 64 KB buffer cho JPEG
+    ws_cfg.task_stack = 16 * 1024;
+    ws_cfg.task_prio = 5;
+    s_ws_client = esp_websocket_client_init(&ws_cfg);
 
-  s_ws_client = esp_websocket_client_init(&ws_cfg);
-  if (!s_ws_client) {
-    ESP_LOGE(TAG, "WebSocket client init failed");
-    return ESP_FAIL;
-  }
+    if (!s_ws_client) {
+        ESP_LOGE(TAG, "WebSocket client init failed");
+        return ESP_FAIL;
+    }
 
-  esp_websocket_register_events(s_ws_client, WEBSOCKET_EVENT_ANY,
-                                websocket_event_handler, nullptr);
+    esp_websocket_register_events(s_ws_client, WEBSOCKET_EVENT_ANY,
+                                    websocket_event_handler, nullptr);
 
-  ESP_LOGI(TAG, "WebSocket client initialized – URI: %s", uri);
-  return ESP_OK;
+    ESP_LOGI(TAG, "WebSocket client initialized – URI: %s", uri);
+    return ESP_OK;
 }
 
 esp_err_t websocket_start(void) {
