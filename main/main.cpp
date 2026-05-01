@@ -50,7 +50,6 @@ static const char *TAG = "main";
 // #define WS_SERVER_URI   "ws://192.168.1.15:5000/ws"
 /* ── Shared state ────────────────────────────────────────── */
 static std::atomic<bool> s_streaming{false};
-static bool sending = false;
 
 
 /* ── Command callback từ WebSocket ───────────────────────── */
@@ -85,7 +84,7 @@ static void stream_task(void *arg)
 
     while (true) {
         if (!s_streaming.load() || !websocket_is_connected()) {
-            vTaskDelay(pdMS_TO_TICKS(100));
+            vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
 
@@ -96,12 +95,7 @@ static void stream_task(void *arg)
             ESP_LOGW(TAG, "capture_jpeg failed");
             continue;
         }
-        int sent = -1;
-        if (!sending) {
-            sending = true;
-            sent = websocket_send_bin(buf, jpg_len);
-            sending = false;
-        }
+        int sent = websocket_send_bin(buf, jpg_len);
 
         if (sent < 0) {
             ESP_LOGW(TAG, "Failed to send frame (%zu bytes)", jpg_len);
@@ -110,7 +104,7 @@ static void stream_task(void *arg)
         free(buf);  // 🔥 luôn free (success hay fail)
 
         /* ~15 FPS */
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -121,7 +115,7 @@ static void ai_task(void *arg)
 
     while (true) {
         if (!ai_is_running()) {
-            vTaskDelay(pdMS_TO_TICKS(200));
+            vTaskDelay(pdMS_TO_TICKS(500));
             continue;
         }
 
@@ -160,8 +154,10 @@ static void heartbeat_task(void *arg)
             snprintf(buf, sizeof(buf),
                      "{\"type\":\"esp_status\",\"name\":\"heartbeat\",\"faces_enrolled\":0}");
             websocket_send_text(buf);
+        }else{
+            ESP_LOGI(TAG, "WS: ws disconnected");
         }
-        vTaskDelay(pdMS_TO_TICKS(4000));
+        vTaskDelay(pdMS_TO_TICKS(3000));
     }
 }
 
@@ -209,11 +205,11 @@ extern "C" void app_main(void)
     xTaskCreatePinnedToCore(
         stream_task,        // Function
         "stream_task",      // Name
-        4096,               // Stack size
+        5000,               // Stack size
         nullptr,            // Parameter
-        5,                  // Priority
+        4,                  // Priority
         nullptr,            // Handle
-        0                   // Core 0
+        1                   // Core 0
     );
     // ai_set_running(true);
 
@@ -222,7 +218,7 @@ extern "C" void app_main(void)
         "ai_task",          // Name
         10000,               // Stack size (AI cần nhiều hơn)
         nullptr,            // Parameter
-        4,                  // Priority (thấp hơn stream)
+        3,                  // Priority (thấp hơn stream)
         nullptr,            // Handle
         1                   // Core 1
     );

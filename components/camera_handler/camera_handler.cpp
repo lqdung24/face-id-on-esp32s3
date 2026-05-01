@@ -52,9 +52,9 @@ esp_err_t camera_init(void) {
   config.ledc_channel = LEDC_CHANNEL_0;
 
   config.pixel_format = PIXFORMAT_RGB565; // jpeg
-//   config.frame_size = FRAMESIZE_QVGA;     // 320×240
+  config.frame_size = FRAMESIZE_QVGA;     // 320×240
   //   config.jpeg_quality = 12;           // 0-63, thấp = chất lượng cao
-  config.fb_count = 2; // Double-buffer
+  config.fb_count = 3; // Double-buffer
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
 

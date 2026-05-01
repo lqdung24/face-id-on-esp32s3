@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "cJSON.h"
 #include <cstring>
 #include <vector>
@@ -14,6 +15,7 @@ static const char *TAG = "ws_handler";
 
 static esp_websocket_client_handle_t s_ws_client = nullptr;
 static ws_command_cb_t s_cmd_callback = nullptr;
+static SemaphoreHandle_t s_send_mutex = nullptr;
 static bool s_registering = false;
 static char s_reg_name[32] = {0};
 static int s_reg_expected = 0;
@@ -168,6 +170,13 @@ esp_err_t websocket_init(const char *uri) {
     ws_cfg.buffer_size = 16 * 1024; // 64 KB buffer cho JPEG
     ws_cfg.task_stack = 16 * 1024;
     ws_cfg.task_prio = 5;
+
+    s_send_mutex = xSemaphoreCreateMutex();
+    if (!s_send_mutex) {
+        ESP_LOGE(TAG, "Failed to create send mutex");
+        return ESP_FAIL;
+    }
+
     s_ws_client = esp_websocket_client_init(&ws_cfg);
 
     if (!s_ws_client) {
@@ -209,9 +218,14 @@ int websocket_send_bin(const uint8_t *data, size_t len) {
   if (!s_ws_client || !esp_websocket_client_is_connected(s_ws_client)) {
     return -1;
   }
-  return esp_websocket_client_send_bin(
+  if (xSemaphoreTake(s_send_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    return -1;  // busy, skip this frame
+  }
+  int ret = esp_websocket_client_send_bin(
       s_ws_client, reinterpret_cast<const char *>(data), static_cast<int>(len),
       pdMS_TO_TICKS(1000));
+  xSemaphoreGive(s_send_mutex);
+  return ret;
 }
 
 
@@ -219,9 +233,14 @@ int websocket_send_text(const char *json_str) {
   if (!s_ws_client || !esp_websocket_client_is_connected(s_ws_client)) {
     return -1;
   }
-  return esp_websocket_client_send_text(s_ws_client, json_str,
-                                        static_cast<int>(strlen(json_str)),
-                                        pdMS_TO_TICKS(1000));
+  if (xSemaphoreTake(s_send_mutex, pdMS_TO_TICKS(200)) != pdTRUE) {
+    return -1;  // busy, skip
+  }
+  int ret = esp_websocket_client_send_text(s_ws_client, json_str,
+                                           static_cast<int>(strlen(json_str)),
+                                           pdMS_TO_TICKS(1000));
+  xSemaphoreGive(s_send_mutex);
+  return ret;
 }
 
 bool websocket_is_connected(void) {
